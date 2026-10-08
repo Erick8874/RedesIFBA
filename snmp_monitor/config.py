@@ -12,7 +12,7 @@ DATABASE_PATH = APP_DIR / "historico.sqlite3"
 
 @dataclass
 class AppConfig:
-    router_host: str = ""
+    router_host: str = "192.168.88.1"
     community: str = "public"
     port: int = 161
     interval_seconds: int = 5
@@ -32,7 +32,10 @@ class AppConfig:
         try:
             values = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             allowed = cls.__dataclass_fields__.keys()
-            return cls(**{key: value for key, value in values.items() if key in allowed})
+            settings = {key: value for key, value in values.items() if key in allowed}
+            if not settings.get("router_host"):
+                settings["router_host"] = cls.router_host
+            return cls(**settings)
         except (OSError, json.JSONDecodeError, TypeError):
             return cls()
 

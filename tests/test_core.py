@@ -43,5 +43,10 @@ class AlertTests(unittest.TestCase):
         self.assertIn("Tráfego", messages[1])
 
 
+class ConfigTests(unittest.TestCase):
+    def test_router_address_defaults_to_configured_address(self):
+        self.assertEqual(AppConfig().router_host, "192.168.88.1")
+
+
 if __name__ == "__main__":
     unittest.main()
