@@ -185,11 +185,40 @@ class MonitorApp:
     def _build_chart(self, parent: ttk.Frame, chart_id: str, title: str, colors: list[str], labels: list[str]):
         holder = ttk.Frame(parent, style="Panel.TFrame", padding=(9, 7))
         self.chart_frames[chart_id] = holder
-        ttk.Label(holder, text=title, style="Section.TLabel").pack(anchor="w")
+        title_row = ttk.Frame(holder, style="Panel.TFrame")
+        title_row.pack(fill="x")
+        ttk.Label(title_row, text=title, style="Section.TLabel").pack(side="left", anchor="w")
+        if chart_id == "live_cpu":
+            self.live_cpu_readout = tk.StringVar(value="Aguardando SNMP")
+            ttk.Label(
+                title_row,
+                textvariable=self.live_cpu_readout,
+                style="Section.TLabel",
+                foreground=ACCENT,
+            ).pack(side="right", anchor="e")
+        elif chart_id == "history_cpu":
+            self.history_cpu_readout = tk.StringVar(value="Sem amostras")
+            ttk.Label(
+                title_row,
+                textvariable=self.history_cpu_readout,
+                style="Section.TLabel",
+                foreground=ACCENT,
+            ).pack(side="right", anchor="e")
         figure = Figure(figsize=(6, 3.0), dpi=100, facecolor=PANEL)
         axis = figure.add_subplot(111)
         self._style_axis(axis)
-        lines = [axis.plot([], [], color=color, linewidth=2, label=label)[0] for color, label in zip(colors, labels)]
+        lines = [
+            axis.plot(
+                [],
+                [],
+                color=color,
+                linewidth=2,
+                marker="o" if chart_id.endswith("cpu") else None,
+                markersize=4,
+                label=label,
+            )[0]
+            for color, label in zip(colors, labels)
+        ]
         axis.legend(loc="upper left", frameon=False, labelcolor=TEXT)
         figure.tight_layout(pad=1.5)
         canvas = FigureCanvasTkAgg(figure, master=holder)
@@ -406,6 +435,7 @@ class MonitorApp:
         cutoff = sample.timestamp - 600
         self.samples = [item for item in self.samples if item.timestamp >= cutoff]
         self.repository.add(sample)
+        self.live_cpu_readout.set(f"{sample.cpu_percent:.1f}% · SNMP")
         self._draw_live()
         self._check_alerts(sample)
 
@@ -453,6 +483,9 @@ class MonitorApp:
             messagebox.showerror("Intervalo", "A data inicial deve ser anterior à data final.", parent=self.root)
             return
         history = self.repository.between(start, end)
+        self.history_cpu_readout.set(
+            f"Última: {history[-1].cpu_percent:.1f}%" if history else "Sem amostras"
+        )
         timestamps = [sample.timestamp for sample in history]
         self._draw(self.history_traffic, timestamps, [[sample.rx_bytes_sec for sample in history], [sample.tx_bytes_sec for sample in history]], "Bytes/s", sliding=False)
         self._draw(self.history_cpu, timestamps, [[sample.cpu_percent for sample in history]], "%", (0, 100), sliding=False)
