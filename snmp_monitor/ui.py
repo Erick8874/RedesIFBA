@@ -34,7 +34,7 @@ class MonitorApp:
         self.root = tk.Tk()
         self.root.title("Observatório SNMP | Monitor de roteador")
         self.root.geometry("1320x900")
-        self.root.minsize(980, 700)
+        self.root.minsize(720, 600)
         self.root.configure(bg=BG)
         self.config = AppConfig.load()
         self.repository = SampleRepository(DATABASE_PATH)
@@ -45,8 +45,13 @@ class MonitorApp:
         self.interfaces: list[InterfaceInfo] = []
         self.previous_alert_state = {"cpu": False, "traffic": False}
         self.interface_by_label: dict[str, InterfaceInfo] = {}
+        self.responsive_forms: dict[ttk.Frame, list[ttk.Frame]] = {}
+        self.chart_frames: dict[str, ttk.Frame] = {}
+        self.last_layout_mode: str | None = None
         self._build_styles()
         self._build_layout()
+        self.root.bind("<Configure>", self._on_resize)
+        self.root.after_idle(lambda: self._relayout(self.root.winfo_width()))
         self.root.after(150, self._process_events)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -90,10 +95,10 @@ class MonitorApp:
         history_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(live_tab, text="  Tempo real  ")
         self.notebook.add(history_tab, text="  Histórico  ")
-        self.live_traffic = self._build_chart(live_tab, "Tráfego da interface", [ACCENT, ORANGE], ["Entrada", "Saída"])
-        self.live_cpu = self._build_chart(live_tab, "Uso da CPU", [ACCENT], ["CPU média"])
-        self.history_traffic = self._build_chart(history_tab, "Histórico de tráfego", [ACCENT, ORANGE], ["Entrada", "Saída"])
-        self.history_cpu = self._build_chart(history_tab, "Histórico de CPU", [ACCENT], ["CPU média"])
+        self.live_traffic = self._build_chart(live_tab, "live_traffic", "Tráfego da interface", [ACCENT, ORANGE], ["Entrada", "Saída"])
+        self.live_cpu = self._build_chart(live_tab, "live_cpu", "Uso da CPU", [ACCENT], ["CPU média"])
+        self.history_traffic = self._build_chart(history_tab, "history_traffic", "Histórico de tráfego", [ACCENT, ORANGE], ["Entrada", "Saída"])
+        self.history_cpu = self._build_chart(history_tab, "history_cpu", "Histórico de CPU", [ACCENT], ["CPU média"])
         self._build_history_controls(history_tab)
 
     def _panel(self, parent: ttk.Frame, title: str, column: int) -> ttk.Frame:
@@ -105,8 +110,6 @@ class MonitorApp:
     def _build_connection(self, parent: ttk.Frame) -> None:
         row = ttk.Frame(parent, style="Panel.TFrame", padding=12)
         row.pack(fill="x")
-        for column, weight in enumerate((2, 1, 1, 2, 2, 2, 1, 2)):
-            row.columnconfigure(column, weight=weight)
 
         self.host_var = tk.StringVar(value=self.config.router_host)
         self.community_var = tk.StringVar(value=self.config.community)
@@ -125,39 +128,63 @@ class MonitorApp:
         self._field(row, "IP / host do roteador", self.host_var, 0, 0)
         self._field(row, "Comunidade SNMP", self.community_var, 1, 0, show="•")
         self._field(row, "Porta", self.port_var, 2, 0)
-        self.interface_combo = ttk.Combobox(row, textvariable=self.interface_var, state="readonly")
-        self._labeled(row, "Interface ligada ao computador", self.interface_combo, 3, 0)
-        ttk.Button(row, text="Descobrir", command=self._discover).grid(row=1, column=4, padx=4, sticky="ew")
-        ttk.Button(row, text="Iniciar", style="Accent.TButton", command=self._start).grid(row=1, column=5, padx=4, sticky="ew")
-        ttk.Button(row, text="Parar", command=self._stop).grid(row=1, column=6, padx=4, sticky="ew")
+        self.interface_combo = self._labeled(
+            row,
+            "Interface ligada ao computador",
+            lambda group: ttk.Combobox(group, textvariable=self.interface_var, state="readonly"),
+            3,
+            0,
+        )
         self._field(row, "Coleta (segundos)", self.interval_var, 7, 0)
+        actions = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 0, 12, 8))
+        actions.pack(fill="x")
+        ttk.Button(actions, text="Descobrir", command=self._discover).pack(side="left", padx=(0, 6))
+        ttk.Button(actions, text="Iniciar", style="Accent.TButton", command=self._start).pack(side="left", padx=6)
+        ttk.Button(actions, text="Parar", command=self._stop).pack(side="left", padx=6)
 
         settings = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 8))
         settings.pack(fill="x", pady=(8, 0))
-        for column, weight in enumerate((1, 1, 1, 1, 1, 1, 1, 1)):
-            settings.columnconfigure(column, weight=weight)
         self._field(settings, "Alerta CPU (%)", self.cpu_limit_var, 0, 0)
         self._field(settings, "Alerta tráfego (MB/s)", self.traffic_limit_var, 1, 0)
-        mode = ttk.Combobox(settings, textvariable=self.alert_mode_var, values=("popup", "email"), state="readonly")
-        self._labeled(settings, "Tipo de alerta", mode, 2, 0)
+        self._labeled(
+            settings,
+            "Tipo de alerta",
+            lambda group: ttk.Combobox(
+                group,
+                textvariable=self.alert_mode_var,
+                values=("popup", "email"),
+                state="readonly",
+            ),
+            2,
+            0,
+        )
         self._field(settings, "Destinatário email", self.email_var, 3, 0)
         self._field(settings, "Servidor SMTP", self.smtp_host_var, 4, 0)
         self._field(settings, "Porta SMTP", self.smtp_port_var, 5, 0)
         self._field(settings, "Usuário SMTP", self.smtp_user_var, 6, 0)
         self._field(settings, "Remetente", self.email_from_var, 7, 0)
 
-    def _labeled(self, parent: ttk.Frame, label: str, widget: tk.Widget, column: int, row: int) -> None:
-        ttk.Label(parent, text=label, style="Muted.TLabel").grid(row=row * 2, column=column, sticky="w", padx=4)
-        widget.grid(row=row * 2 + 1, column=column, sticky="ew", padx=4, pady=(2, 4))
+    def _labeled(self, parent: ttk.Frame, label: str, widget_factory, column: int, row: int):
+        group = ttk.Frame(parent, style="Panel.TFrame")
+        ttk.Label(group, text=label, style="Muted.TLabel").pack(anchor="w", padx=4)
+        widget = widget_factory(group)
+        widget.pack(fill="x", padx=4, pady=(2, 4))
+        group.grid(row=row, column=column, sticky="ew", padx=2, pady=2)
+        self.responsive_forms.setdefault(parent, []).append(group)
+        return widget
 
     def _field(self, parent: ttk.Frame, label: str, variable: tk.StringVar, column: int, row: int, show: str = "") -> None:
-        entry = ttk.Entry(parent, textvariable=variable, show=show)
-        self._labeled(parent, label, entry, column, row)
+        self._labeled(
+            parent,
+            label,
+            lambda group: ttk.Entry(group, textvariable=variable, show=show),
+            column,
+            row,
+        )
 
-    def _build_chart(self, parent: ttk.Frame, title: str, colors: list[str], labels: list[str]):
+    def _build_chart(self, parent: ttk.Frame, chart_id: str, title: str, colors: list[str], labels: list[str]):
         holder = ttk.Frame(parent, style="Panel.TFrame", padding=(9, 7))
-        index = 0 if "Tráfego" in title else 1
-        holder.grid(row=index, column=0, sticky="nsew", pady=(0, 8) if index == 0 else 0)
+        self.chart_frames[chart_id] = holder
         ttk.Label(holder, text=title, style="Section.TLabel").pack(anchor="w")
         figure = Figure(figsize=(6, 3.0), dpi=100, facecolor=PANEL)
         axis = figure.add_subplot(111)
@@ -167,9 +194,54 @@ class MonitorApp:
         figure.tight_layout(pad=1.5)
         canvas = FigureCanvasTkAgg(figure, master=holder)
         canvas.get_tk_widget().pack(fill="both", expand=True)
-        parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(index, weight=1)
         return axis, lines, canvas
+
+    def _on_resize(self, event: tk.Event) -> None:
+        if event.widget is self.root:
+            self._relayout(event.width)
+
+    def _relayout(self, width: int) -> None:
+        if width >= 1100:
+            mode, form_columns, charts_side_by_side = "wide", 4, True
+        elif width >= 760:
+            mode, form_columns, charts_side_by_side = "medium", 2, False
+        else:
+            mode, form_columns, charts_side_by_side = "narrow", 1, False
+        if mode == self.last_layout_mode:
+            return
+        self.last_layout_mode = mode
+
+        for parent, groups in self.responsive_forms.items():
+            for column in range(4):
+                parent.columnconfigure(column, weight=1 if column < form_columns else 0)
+            for index, group in enumerate(groups):
+                group.grid_configure(row=index // form_columns, column=index % form_columns)
+
+        for traffic_id, cpu_id in (("live_traffic", "live_cpu"), ("history_traffic", "history_cpu")):
+            traffic_frame = self.chart_frames[traffic_id]
+            cpu_frame = self.chart_frames[cpu_id]
+            tab = traffic_frame.master
+            traffic_frame.grid_forget()
+            cpu_frame.grid_forget()
+            tab.columnconfigure(0, weight=1)
+            tab.columnconfigure(1, weight=1 if charts_side_by_side else 0)
+            tab.rowconfigure(0, weight=1)
+            tab.rowconfigure(1, weight=0 if charts_side_by_side else 1)
+            if charts_side_by_side:
+                traffic_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=4)
+                cpu_frame.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=4)
+            else:
+                traffic_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+                cpu_frame.grid(row=1, column=0, sticky="nsew")
+
+        history_tab = self.chart_frames["history_traffic"].master
+        history_tab.rowconfigure(2, weight=0)
+        if hasattr(self, "history_controls"):
+            self.history_controls.grid_configure(
+                row=1 if charts_side_by_side else 2,
+                column=0,
+                columnspan=2 if charts_side_by_side else 1,
+            )
 
     @staticmethod
     def _style_axis(axis) -> None:
@@ -185,6 +257,7 @@ class MonitorApp:
     def _build_history_controls(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent, style="Panel.TFrame", padding=10)
         controls.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.history_controls = controls
         now = datetime.now()
         self.history_start_var = tk.StringVar(value=(now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"))
         self.history_end_var = tk.StringVar(value=now.strftime("%Y-%m-%d %H:%M"))
