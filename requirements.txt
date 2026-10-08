@@ -1,0 +1,2 @@
+pysnmp==7.1.16
+matplotlib==3.10.8
