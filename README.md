@@ -32,6 +32,8 @@ Informe o IP do roteador, versão SNMP e porta e pressione **Descobrir**. Para v
 
 O intervalo de coleta é configurável em segundos. O painel em tempo real mantém uma janela deslizante de dez minutos. **Pausar** preserva a série; **Iniciar** retoma a coleta pausada. **Resetar visualização** limpa somente a série em tempo real exibida, não apaga o histórico persistido. **Encerrar** termina a coleta. A aba Histórico consulta os dados armazenados por intervalo de data/hora local (`AAAA-MM-DD HH:MM`) e informa quando não há amostras.
 
+Use **Aplicar configuração** para salvar os campos e aplicar imediatamente alterações nos limites e canais de alerta, inclusive durante a coleta. Alterações no equipamento, parâmetros SNMP, interface ou intervalo passam a valer quando a coleta for iniciada novamente.
+
 ## CPU e tráfego SNMP
 
 - CPU usa por padrão `HOST-RESOURCES-MIB::hrProcessorLoad` (`1.3.6.1.2.1.25.3.3.1.2`), apresentada como média dos processadores reportados.
@@ -45,6 +47,17 @@ Os limites de CPU (%) e tráfego (bps) são configuráveis. O mesmo threshold de
 
 - **popup**, **email** ou **both** permitem selecionar pop-up, email ou ambos.
 - Email requer endereço de destino válido, servidor SMTP, porta e remetente. Se o servidor exigir autenticação, a senha é solicitada no momento do envio e não é salva. O envio usa STARTTLS. Erros de envio e de coleta são apresentados no status da aplicação sem encerrar o monitoramento.
+
+## Capturas de tela
+
+Adicione as capturas da aplicação à pasta `docs/imagens/`. Para documentar a demonstração, recomenda-se incluir:
+
+- tela de monitoramento em tempo real com os gráficos de tráfego e CPU;
+- tela do histórico com o período selecionado e os gráficos;
+- configuração dos limites e do canal de alerta;
+- exemplo de alerta por pop-up.
+
+Use nomes descritivos, como `tempo-real.png`, `historico.png`, `configuracao-alertas.png` e `alerta-popup.png`. Depois de adicionar as imagens, inclua-as aqui com a sintaxe `![Descrição da captura](docs/imagens/nome-do-arquivo.png)`.
 
 ## Configuração e persistência
 

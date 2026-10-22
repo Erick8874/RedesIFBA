@@ -5,7 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from snmp_monitor.alerts import alert_messages, transition_alert_messages
+from snmp_monitor.alerts import (
+    alert_messages,
+    reset_changed_threshold_states,
+    transition_alert_messages,
+)
 from snmp_monitor.config import AppConfig
 from snmp_monitor.models import Sample
 from snmp_monitor.repository import SampleRepository
@@ -105,6 +109,34 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(repeated, [])
         self.assertEqual(recovered, [])
         self.assertEqual(len(again), 1)
+
+    def test_changing_cpu_threshold_rearms_cpu_alert(self):
+        previous_config = AppConfig(alert_cpu_percent=80, alert_traffic_bps=1000)
+        config = AppConfig(alert_cpu_percent=70, alert_traffic_bps=1000)
+        state = {"cpu": True, "in": True, "out": False}
+
+        updated_state = reset_changed_threshold_states(state, previous_config, config)
+        messages, _ = transition_alert_messages(
+            Sample(110, 75, 1500, 500, 0, 0), config, updated_state
+        )
+
+        self.assertEqual(updated_state, {"cpu": False, "in": True, "out": False})
+        self.assertEqual(len(messages), 1)
+        self.assertTrue(messages[0].startswith("CPU:"))
+
+    def test_changing_traffic_threshold_rearms_both_directions(self):
+        previous_config = AppConfig(alert_cpu_percent=80, alert_traffic_bps=1000)
+        config = AppConfig(alert_cpu_percent=80, alert_traffic_bps=500)
+        state = {"cpu": True, "in": True, "out": False}
+
+        updated_state = reset_changed_threshold_states(state, previous_config, config)
+        messages, _ = transition_alert_messages(
+            Sample(110, 90, 700, 600, 0, 0), config, updated_state
+        )
+
+        self.assertEqual(updated_state, {"cpu": True, "in": False, "out": False})
+        self.assertEqual(len(messages), 2)
+        self.assertTrue(all(message.startswith("Tráfego") for message in messages))
 
 
 class ConfigTests(unittest.TestCase):

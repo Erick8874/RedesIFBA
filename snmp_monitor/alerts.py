@@ -48,6 +48,20 @@ def transition_alert_messages(
     return messages, states
 
 
+def reset_changed_threshold_states(
+    previous_state: dict[str, bool],
+    previous_config: AppConfig,
+    config: AppConfig,
+) -> dict[str, bool]:
+    states = previous_state.copy()
+    if previous_config.alert_cpu_percent != config.alert_cpu_percent:
+        states["cpu"] = False
+    if previous_config.alert_traffic_bps != config.alert_traffic_bps:
+        states["in"] = False
+        states["out"] = False
+    return states
+
+
 def send_email(config: AppConfig, subject: str, body: str, password: str = "") -> None:
     if not config.smtp_host or not config.email_from or not config.email_to:
         raise ValueError("Preencha servidor SMTP, remetente e destinatário.")

@@ -15,7 +15,11 @@ import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from snmp_monitor.alerts import send_email, transition_alert_messages
+from snmp_monitor.alerts import (
+    reset_changed_threshold_states,
+    send_email,
+    transition_alert_messages,
+)
 from snmp_monitor.config import APP_DIR, DATABASE_PATH, AppConfig
 from snmp_monitor.models import InterfaceInfo, Sample
 from snmp_monitor.repository import SampleRepository
@@ -209,6 +213,15 @@ class MonitorApp:
         self._field(settings, "Porta SMTP", self.smtp_port_var, 5, 0)
         self._field(settings, "Usuário SMTP", self.smtp_user_var, 6, 0)
         self._field(settings, "Remetente", self.email_from_var, 7, 0)
+        self._labeled(
+            settings,
+            "Aplicar alterações",
+            lambda group: ttk.Button(
+                group, text="Aplicar configuração", command=self._apply_config
+            ),
+            8,
+            0,
+        )
 
     def _labeled(self, parent: ttk.Frame, label: str, widget_factory, column: int, row: int):
         group = ttk.Frame(parent, style="Panel.TFrame")
@@ -398,6 +411,21 @@ class MonitorApp:
         config.save()
         self.config = config
         return config
+
+    def _apply_config(self) -> None:
+        previous_config = self.config
+        try:
+            config = self._save_config()
+        except (ValueError, OSError) as error:
+            messagebox.showerror("Configuração", str(error), parent=self.root)
+            return
+        self.previous_alert_state = reset_changed_threshold_states(
+            self.previous_alert_state, previous_config, config
+        )
+        self.status_var.set(
+            "Configuração aplicada; limites de alerta atualizados. "
+            "Alterações SNMP entram em vigor ao reiniciar a coleta."
+        )
 
     def _discover(self) -> None:
         if self.worker is not None and self.worker.is_alive():
