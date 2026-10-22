@@ -17,7 +17,7 @@ class InterfaceInfo:
 class Sample:
     timestamp: float
     cpu_percent: float
-    rx_bytes_sec: float
-    tx_bytes_sec: float
+    rx_bps: float
+    tx_bps: float
     rx_counter: int
     tx_counter: int

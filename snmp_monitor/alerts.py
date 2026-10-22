@@ -3,6 +3,7 @@ from __future__ import annotations
 import smtplib
 import ssl
 from email.message import EmailMessage
+from datetime import datetime
 
 from snmp_monitor.config import AppConfig
 from snmp_monitor.models import Sample
@@ -10,18 +11,41 @@ from snmp_monitor.models import Sample
 
 def alert_messages(sample: Sample, config: AppConfig) -> list[str]:
     messages: list[str] = []
-    if sample.cpu_percent >= config.alert_cpu_percent:
+    timestamp = datetime.fromtimestamp(sample.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    if sample.cpu_percent > config.alert_cpu_percent:
         messages.append(
-            f"CPU em {sample.cpu_percent:.1f}% (limite: {config.alert_cpu_percent:.1f}%)."
+            f"CPU: {sample.cpu_percent:.1f}% (limite: "
+            f"{config.alert_cpu_percent:.1f}%) às {timestamp}."
         )
-    traffic = max(sample.rx_bytes_sec, sample.tx_bytes_sec)
-    if traffic >= config.alert_traffic_bytes_sec:
-        messages.append(
-            "Tráfego em "
-            f"{traffic / 1_000_000:.2f} MB/s (limite: "
-            f"{config.alert_traffic_bytes_sec / 1_000_000:.2f} MB/s)."
-        )
+    for direction, value in (("IN", sample.rx_bps), ("OUT", sample.tx_bps)):
+        if value >= config.alert_traffic_bps:
+            messages.append(
+                f"Tráfego {direction}: {value:.0f} bps (limite: "
+                f"{config.alert_traffic_bps:.0f} bps) às {timestamp}."
+            )
     return messages
+
+
+def transition_alert_messages(
+    sample: Sample,
+    config: AppConfig,
+    previous_state: dict[str, bool],
+) -> tuple[list[str], dict[str, bool]]:
+    states = {
+        "cpu": sample.cpu_percent > config.alert_cpu_percent,
+        "in": sample.rx_bps >= config.alert_traffic_bps,
+        "out": sample.tx_bps >= config.alert_traffic_bps,
+    }
+    labels = {"cpu": "CPU:", "in": "Tráfego IN:", "out": "Tráfego OUT:"}
+    messages = [
+        message
+        for message in alert_messages(sample, config)
+        if any(
+            states[key] and not previous_state[key] and message.startswith(label)
+            for key, label in labels.items()
+        )
+    ]
+    return messages, states
 
 
 def send_email(config: AppConfig, subject: str, body: str, password: str = "") -> None:

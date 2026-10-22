@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import math
 import socket
 import time
 
@@ -12,7 +13,11 @@ from pysnmp.hlapi.v3arch.asyncio import (
     ObjectType,
     SnmpEngine,
     UdpTransportTarget,
+    UsmUserData,
     get_cmd,
+    usmAesCfb128Protocol,
+    usmHMACSHAAuthProtocol,
+    usmNoPrivProtocol,
     walk_cmd,
 )
 
@@ -32,22 +37,51 @@ HR_CPU_LOAD = "1.3.6.1.2.1.25.3.3.1.2"
 
 
 def calculate_rate(current: int, previous: int, elapsed: float) -> float:
-    if elapsed <= 0:
+    if current < 0 or previous < 0 or elapsed <= 0 or not math.isfinite(elapsed):
         return 0.0
     delta = current - previous
     if delta < 0:
         modulus = 2**64 if previous > 2**32 else 2**32
-        delta = current + modulus - previous
-    return max(0.0, delta / elapsed)
+        if previous < modulus * 0.9 or current > modulus * 0.1:
+            return 0.0
+        delta += modulus
+    rate = delta * 8 / elapsed
+    if not math.isfinite(rate) or rate > 1_000_000_000_000:
+        return 0.0
+    return max(0.0, rate)
 
 
 class SnmpClient:
-    def __init__(self, host: str, community: str, port: int = 161) -> None:
+    def __init__(
+        self,
+        host: str,
+        community: str,
+        port: int = 161,
+        snmp_version: str = "2c",
+        snmpv3_user: str = "",
+        snmpv3_auth_key: str = "",
+        snmpv3_priv_key: str = "",
+    ) -> None:
         self.host = host
         self.community = community
         self.port = port
+        if snmp_version == "2c":
+            auth = CommunityData(community, mpModel=1)
+        elif snmp_version == "3":
+            if not snmpv3_user or len(snmpv3_auth_key) < 8:
+                raise ValueError("SNMPv3 exige usuário e senha de autenticação válidos.")
+            auth = UsmUserData(
+                snmpv3_user,
+                authKey=snmpv3_auth_key,
+                privKey=snmpv3_priv_key or None,
+                authProtocol=usmHMACSHAAuthProtocol,
+                privProtocol=usmAesCfb128Protocol if snmpv3_priv_key else usmNoPrivProtocol,
+            )
+        else:
+            raise ValueError(f"Versão SNMP não suportada: {snmp_version}")
+        self.auth = auth
         self.engine = SnmpEngine()
-        self.auth = CommunityData(community, mpModel=1)
+        self._previous_monotonic: float | None = None
 
     async def _target(self) -> UdpTransportTarget:
         return await UdpTransportTarget.create(
@@ -83,6 +117,8 @@ class SnmpClient:
             raise RuntimeError(str(indication))
         if status:
             raise RuntimeError(f"SNMP: {status.prettyPrint()}")
+        if not var_binds:
+            raise RuntimeError(f"O roteador não retornou valor para o OID {oid}.")
         value = var_binds[0][1]
         rendered = value.prettyPrint()
         if rendered.startswith("No Such"):
@@ -144,7 +180,12 @@ class SnmpClient:
             raise RuntimeError(
                 "Sem dados de CPU. Configure um OID de CPU compatível com o roteador."
             )
-        cpu_loads = [float(value) for _, value in cpu_values]
+        try:
+            cpu_loads = [float(value) for _, value in cpu_values]
+        except ValueError as error:
+            raise RuntimeError("O roteador retornou um valor de CPU inválido.") from error
+        if any(not math.isfinite(value) or not 0 <= value <= 100 for value in cpu_loads):
+            raise RuntimeError("O roteador retornou utilização de CPU fora de 0 a 100%.")
         cpu_percent = sum(cpu_loads) / len(cpu_loads)
         suffix = f".{interface_index}"
         try:
@@ -155,7 +196,13 @@ class SnmpClient:
             tx_counter = await self._get_integer(f"{IF_OUT}{suffix}")
 
         timestamp = time.time()
-        elapsed = timestamp - previous.timestamp if previous else 0.0
+        monotonic_now = time.monotonic()
+        elapsed = (
+            monotonic_now - self._previous_monotonic
+            if previous is not None and self._previous_monotonic is not None
+            else 0.0
+        )
+        self._previous_monotonic = monotonic_now
         return Sample(
             timestamp,
             cpu_percent,
