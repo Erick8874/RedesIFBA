@@ -66,8 +66,9 @@ class MonitorApp:
         self.last_layout_mode: str | None = None
         self._build_styles()
         self._build_layout()
-        self.root.bind("<Configure>", self._on_resize)
-        self.root.after_idle(lambda: self._relayout(self.root.winfo_width()))
+        self.root.after_idle(
+            lambda: self._relayout(self.scroll_canvas.winfo_width())
+        )
         self.root.after(150, self._process_events)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -106,8 +107,24 @@ class MonitorApp:
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT)
 
     def _build_layout(self) -> None:
-        shell = ttk.Frame(self.root, padding=(20, 16))
-        shell.pack(fill="both", expand=True)
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        self.scroll_canvas = tk.Canvas(
+            self.root, bg=BG, highlightthickness=0, borderwidth=0
+        )
+        self.scroll_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(
+            self.root, orient="vertical", command=self.scroll_canvas.yview
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.scroll_canvas.configure(yscrollcommand=scrollbar.set)
+
+        shell = ttk.Frame(self.scroll_canvas, padding=(20, 16))
+        self.scroll_window = self.scroll_canvas.create_window(
+            (0, 0), window=shell, anchor="nw"
+        )
+        shell.bind("<Configure>", self._on_content_resize)
+        self.scroll_canvas.bind("<Configure>", self._on_canvas_resize)
         header = ttk.Frame(shell)
         header.pack(fill="x", pady=(0, 12))
         ttk.Label(header, text="Observatório SNMP", style="Title.TLabel").pack(side="left")
@@ -284,13 +301,20 @@ class MonitorApp:
         canvas.get_tk_widget().pack(fill="both", expand=True)
         return axis, lines, canvas
 
-    def _on_resize(self, event: tk.Event) -> None:
-        if event.widget is self.root:
-            self._relayout(event.width)
+    def _on_content_resize(self, _event: tk.Event) -> None:
+        self.scroll_canvas.configure(
+            scrollregion=self.scroll_canvas.bbox("all")
+        )
+
+    def _on_canvas_resize(self, event: tk.Event) -> None:
+        self.scroll_canvas.itemconfigure(self.scroll_window, width=event.width)
+        self._relayout(event.width)
 
     def _relayout(self, width: int) -> None:
         if width >= 1100:
             mode, form_columns, charts_side_by_side = "wide", 4, True
+        elif width >= 900:
+            mode, form_columns, charts_side_by_side = "compact-wide", 2, True
         elif width >= 760:
             mode, form_columns, charts_side_by_side = "medium", 2, False
         else:
@@ -330,6 +354,14 @@ class MonitorApp:
                 column=0,
                 columnspan=2 if charts_side_by_side else 1,
             )
+            for column in range(4):
+                self.history_controls.columnconfigure(
+                    column, weight=1 if column < form_columns else 0
+                )
+            for index, group in enumerate(self.history_control_groups):
+                group.grid_configure(
+                    row=index // form_columns, column=index % form_columns
+                )
 
     @staticmethod
     def _style_axis(axis) -> None:
@@ -349,13 +381,31 @@ class MonitorApp:
         now = datetime.now()
         self.history_start_var = tk.StringVar(value=(now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"))
         self.history_end_var = tk.StringVar(value=now.strftime("%Y-%m-%d %H:%M"))
-        ttk.Label(controls, text="De (AAAA-MM-DD HH:MM)", style="Muted.TLabel").pack(side="left", padx=(0, 5))
-        ttk.Entry(controls, textvariable=self.history_start_var, width=18).pack(side="left", padx=(0, 12))
-        ttk.Label(controls, text="Até", style="Muted.TLabel").pack(side="left", padx=(0, 5))
-        ttk.Entry(controls, textvariable=self.history_end_var, width=18).pack(side="left", padx=(0, 12))
-        ttk.Button(controls, text="Aplicar intervalo", command=self._refresh_history).pack(side="left")
+        self.history_control_groups = []
+        for label, variable in (
+            ("De (AAAA-MM-DD HH:MM)", self.history_start_var),
+            ("Até (AAAA-MM-DD HH:MM)", self.history_end_var),
+        ):
+            group = ttk.Frame(controls, style="Panel.TFrame")
+            ttk.Label(group, text=label, style="Muted.TLabel").pack(anchor="w")
+            ttk.Entry(group, textvariable=variable, width=18).pack(fill="x", pady=(2, 0))
+            group.grid(sticky="ew", padx=4, pady=3)
+            self.history_control_groups.append(group)
+
+        apply_group = ttk.Frame(controls, style="Panel.TFrame")
+        ttk.Button(
+            apply_group, text="Aplicar intervalo", command=self._refresh_history
+        ).pack(anchor="w", pady=(19, 0))
+        apply_group.grid(sticky="ew", padx=4, pady=3)
+        self.history_control_groups.append(apply_group)
+
         self.history_count_var = tk.StringVar(value="")
-        ttk.Label(controls, textvariable=self.history_count_var, style="Muted.TLabel").pack(side="right")
+        count_group = ttk.Frame(controls, style="Panel.TFrame")
+        ttk.Label(
+            count_group, textvariable=self.history_count_var, style="Muted.TLabel"
+        ).pack(anchor="w", pady=(23, 0))
+        count_group.grid(sticky="ew", padx=4, pady=3)
+        self.history_control_groups.append(count_group)
 
     def _config_from_fields(self) -> AppConfig:
         interval = int(self.interval_var.get())
