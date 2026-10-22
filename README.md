@@ -50,14 +50,21 @@ Os limites de CPU (%) e tráfego (bps) são configuráveis. O mesmo threshold de
 
 ## Capturas de tela
 
-Adicione as capturas da aplicação à pasta `docs/imagens/`. Para documentar a demonstração, recomenda-se incluir:
+### Tela inicial
 
-- tela de monitoramento em tempo real com os gráficos de tráfego e CPU;
-- tela do histórico com o período selecionado e os gráficos;
-- configuração dos limites e do canal de alerta;
-- exemplo de alerta por pop-up.
+![Tela inicial do Observatório SNMP](docs/imagens/TelaInicial.png)
 
-Use nomes descritivos, como `tempo-real.png`, `historico.png`, `configuracao-alertas.png` e `alerta-popup.png`. Depois de adicionar as imagens, inclua-as aqui com a sintaxe `![Descrição da captura](docs/imagens/nome-do-arquivo.png)`.
+### Monitoramento em tempo real
+
+![Medições e gráficos em tempo real](docs/imagens/MedidaEmTempoReal.png)
+
+### Histórico das medições
+
+![Gráficos e consulta do histórico das medições](docs/imagens/HistoricoDasMedidas.png)
+
+### Alerta de CPU
+
+![Notificação de alerta ao ultrapassar o limite de CPU](docs/imagens/AlertaDeCPU.png)
 
 ## Configuração e persistência
 
